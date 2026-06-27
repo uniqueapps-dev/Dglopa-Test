@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en-NG">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Dglopa Platform — Pharmacy operations, offline-first.">
+  <meta name="theme-color" content="#0A0C10">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Dglopa">
+
+  <title>Dglopa Platform</title>
+
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+
+<body>
+
+  <!-- =============================================
+       LOADING OVERLAY
+  ============================================== -->
+  <div id="loading-overlay" role="status" aria-label="Loading Dglopa">
+    <div class="loader-logo">DGLOPA</div>
+    <div class="loader-spinner"></div>
+    <div class="loader-status" id="loading-status">Starting…</div>
+  </div>
+
+  <!-- =============================================
+       APP SHELL
+  ============================================== -->
+  <div id="app">
+
+    <!-- HEADER -->
+    <header class="app-header" role="banner">
+      <div class="header-logo">
+        DGLOPA
+        <span>Platform</span>
+      </div>
+      <div class="header-actions">
+        <!-- Future: search, notifications -->
+        <button class="header-icon-btn" aria-label="Settings" id="header-settings-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main id="main-content" role="main">
+
+      <!-- HOME -->
+      <section id="screen-home"      class="screen" aria-label="Command Center"></section>
+
+      <!-- RECEIVE -->
+      <section id="screen-receive"   class="screen" aria-label="Receive Stock"></section>
+
+      <!-- SALES -->
+      <section id="screen-sales"     class="screen" aria-label="Point of Sale"></section>
+
+      <!-- INVENTORY -->
+      <section id="screen-inventory" class="screen" aria-label="Inventory"></section>
+
+      <!-- DEMAND -->
+      <section id="screen-demand"    class="screen" aria-label="Demand Log"></section>
+
+      <!-- SUPPLIERS -->
+      <section id="screen-suppliers" class="screen" aria-label="Suppliers"></section>
+
+      <!-- MORE -->
+      <section id="screen-more"      class="screen" aria-label="More">
+        <div class="section-title">More</div>
+        <div class="settings-section-label">Platform</div>
+        <div class="settings-list">
+          <div class="settings-item" id="goto-settings">
+            <span class="settings-item-label">Settings</span>
+            <svg class="settings-item-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS (nested, not in bottom nav) -->
+      <section id="screen-settings"  class="screen" aria-label="Settings"></section>
+
+    </main>
+
+    <!-- BOTTOM NAVIGATION -->
+    <nav class="bottom-nav" role="navigation" aria-label="Main navigation">
+
+      <div class="nav-item" data-nav-id="home" aria-label="Home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        <span class="nav-label">Home</span>
+      </div>
+
+      <div class="nav-item" data-nav-id="receive" aria-label="Receive Stock">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span class="nav-label">Receive</span>
+      </div>
+
+      <div class="nav-item" data-nav-id="sales" aria-label="Sales">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+        </svg>
+        <span class="nav-label">Sales</span>
+      </div>
+
+      <div class="nav-item" data-nav-id="inventory" aria-label="Inventory">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Z"/>
+          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+        </svg>
+        <span class="nav-label">Inventory</span>
+      </div>
+
+      <div class="nav-item" data-nav-id="demand" aria-label="Demand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span class="nav-label">Demand</span>
+      </div>
+
+      <div class="nav-item" data-nav-id="suppliers" aria-label="Suppliers">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <rect x="2" y="7" width="20" height="14" rx="2"/>
+          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+        </svg>
+        <span class="nav-label">Suppliers</span>
+      </div>
+
+      <div class="nav-item" data-nav-id="more" aria-label="More">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
+        </svg>
+        <span class="nav-label">More</span>
+      </div>
+
+    </nav>
+
+  </div><!-- /#app -->
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- ENTRY POINT -->
+  <script type="module" src="app.js"></script>
+
+
+</body>
+</html>

@@ -1,0 +1,78 @@
+/* ============================================================
+   DGLOPA PLATFORM — DESIGN TOKENS
+   Single source of truth for all visual decisions
+   ============================================================ */
+
+:root {
+  /* --- Color Palette --- */
+  --clr-bg:           #0A0C10;   /* near-black canvas */
+  --clr-surface:      #131720;   /* card / panel surface */
+  --clr-surface-2:    #1C2130;   /* elevated surface */
+  --clr-border:       #252D40;   /* subtle border */
+  --clr-border-2:     #2E3A52;   /* stronger border */
+
+  --clr-accent:       #3B82F6;   /* primary blue */
+  --clr-accent-dim:   #1E3A5F;   /* muted accent bg */
+  --clr-amber:        #F59E0B;   /* warm alert / highlight */
+  --clr-amber-dim:    #3D2900;
+  --clr-green:        #22C55E;
+  --clr-green-dim:    #14291C;
+  --clr-red:          #EF4444;
+  --clr-red-dim:      #2D1010;
+
+  --clr-text-primary: #F0F4FF;
+  --clr-text-2:       #8B9ABB;
+  --clr-text-3:       #4A5568;
+
+  /* --- Typography --- */
+  --font-display:  'Bebas Neue', 'Arial Narrow', sans-serif;
+  --font-body:     'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono:     'JetBrains Mono', 'Courier New', monospace;
+
+  --text-xs:   0.70rem;
+  --text-sm:   0.80rem;
+  --text-base: 0.925rem;
+  --text-md:   1.05rem;
+  --text-lg:   1.20rem;
+  --text-xl:   1.50rem;
+  --text-2xl:  1.875rem;
+  --text-3xl:  2.50rem;
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-bold:    700;
+
+  /* --- Spacing --- */
+  --sp-1:  0.25rem;
+  --sp-2:  0.50rem;
+  --sp-3:  0.75rem;
+  --sp-4:  1.00rem;
+  --sp-5:  1.25rem;
+  --sp-6:  1.50rem;
+  --sp-8:  2.00rem;
+  --sp-10: 2.50rem;
+  --sp-12: 3.00rem;
+
+  /* --- Radius --- */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+  --radius-full: 9999px;
+
+  /* --- Elevation (box-shadow) --- */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.5);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+
+  /* --- Transitions --- */
+  --ease-fast:   120ms ease;
+  --ease-normal: 200ms ease;
+  --ease-slow:   350ms ease;
+
+  /* --- Layout --- */
+  --nav-height:    60px;
+  --header-height: 52px;
+  --content-top:   calc(var(--header-height) + var(--sp-4));
+  --safe-bottom:   calc(var(--nav-height) + env(safe-area-inset-bottom));
+}
