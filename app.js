@@ -1,6 +1,7 @@
 /**
  * DGLOPA PLATFORM — APP BOOTSTRAP
  * Entry point. Wires all modules together.
+ * DT-002: Products screen wired with onEnter lifecycle.
  */
 
 import { openDB }             from './db/database.js';
@@ -11,28 +12,22 @@ import { navigate, registerScreen, registerNavItem, initRouter } from './js/rout
 import { renderHome }         from './screens/home.js';
 import { renderSettings }     from './screens/settings.js';
 import { renderPlaceholder }  from './screens/placeholder.js';
+import { initProductsScreen } from './screens/products/productsScreen.js';
 
 // ---- Boot sequence ----
 async function boot() {
-  // 1. Error handler first — catches everything below
   initErrorHandler();
-
-  // 2. Show loading overlay
   LoadingOverlay.show('Starting Dglopa…');
 
   try {
-    // 3. Open database
     LoadingOverlay.setStatus('Opening database…');
     await openDB();
 
-    // 4. Render static screens
     LoadingOverlay.setStatus('Building interface…');
     await buildUI();
 
-    // 5. Register service worker
     registerSW();
 
-    // 6. Hide overlay and initialize router
     LoadingOverlay.hide();
     initRouter('home');
 
@@ -45,73 +40,68 @@ async function boot() {
 
 // ---- Build UI ----
 async function buildUI() {
-  // Render home screen (sync)
+  // Home
   const homeEl = document.getElementById('screen-home');
   if (homeEl) homeEl.innerHTML = renderHome();
 
-  // Render placeholder screens (sync)
-  ['receive', 'sales', 'inventory', 'demand', 'suppliers', 'more'].forEach((id) => {
+  // Placeholder screens (not yet built)
+  ['receive', 'sales', 'demand', 'suppliers', 'more'].forEach((id) => {
     const el = document.getElementById(`screen-${id}`);
     if (el) el.innerHTML = renderPlaceholder(id);
   });
 
-  // Register screens with router
+  // Register all screens
   registerScreen('home');
   registerScreen('receive');
   registerScreen('sales');
-  registerScreen('inventory');
   registerScreen('demand');
   registerScreen('suppliers');
   registerScreen('more');
 
-  // Settings screen has async content
+  // Inventory → Product Master (DT-002)
+  registerScreen('inventory', initProductsScreen);
+
+  // Settings
   const settingsEl = document.getElementById('screen-settings');
   if (settingsEl) {
     registerScreen('settings');
     await renderSettings(settingsEl);
   }
 
-  // Wire bottom nav items
+  // Bottom nav items
   document.querySelectorAll('[data-nav-id]').forEach((el) => {
     const id = el.dataset.navId;
     registerNavItem(id, el);
     el.addEventListener('click', () => navigate(id));
   });
 
-  // Wire command center cards to nav
+  // Command center cards
   document.querySelectorAll('[data-nav]').forEach((el) => {
     const id = el.dataset.nav;
     el.addEventListener('click', () => navigate(id));
   });
 
-  // More > Settings link
+  // Settings links
   document.getElementById('goto-settings')?.addEventListener('click', () => navigate('settings'));
-
-  // Header settings button
   document.getElementById('header-settings-btn')?.addEventListener('click', () => navigate('settings'));
 }
 
 // ---- Service Worker ----
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
-
   navigator.serviceWorker.register('./sw.js', { scope: './' })
     .then((reg) => {
       console.info('[SW] Registered:', reg.scope);
-
-      // Prompt user if new SW waiting
       reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker?.addEventListener('statechange', () => {
-          if (newWorker.statechange === 'installed' && navigator.serviceWorker.controller) {
-            toast('Update available — close and reopen the app to apply.', 'info');
+        const w = reg.installing;
+        w?.addEventListener('statechange', () => {
+          if (w.state === 'installed' && navigator.serviceWorker.controller) {
+            toast('Update available — close and reopen to apply.', 'info');
           }
         });
       });
     })
-    .catch((err) => {
-      console.warn('[SW] Registration failed:', err);
-    });
+    .catch((err) => console.warn('[SW] Registration failed:', err));
 }
 
 // ---- Start ----

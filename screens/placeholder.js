@@ -1,7 +1,7 @@
 /**
  * DGLOPA PLATFORM — PLACEHOLDER SCREENS
- * Stub screens for every nav destination.
- * Each module ticket replaces its stub with real content.
+ * Stub screens for modules not yet built.
+ * Inventory (DT-002) is now a real screen — removed from this list.
  */
 
 const PLACEHOLDERS = {
@@ -16,12 +16,6 @@ const PLACEHOLDERS = {
     title: 'Point of Sale',
     body:  'POS terminal, receipt generation, and daily sales summary.',
     badge: 'M3',
-  },
-  inventory: {
-    icon: `<path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>`,
-    title: 'Inventory',
-    body:  'Product catalog, lot management, expiry tracking, and stock levels.',
-    badge: 'M4',
   },
   demand: {
     icon: `<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>`,
@@ -46,13 +40,11 @@ const PLACEHOLDERS = {
 export function renderPlaceholder(screenId) {
   const cfg = PLACEHOLDERS[screenId];
   if (!cfg) return '<p class="text-muted">Unknown screen.</p>';
-
   return `
     <div class="empty-state">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">${cfg.icon}</svg>
       <div class="empty-state-title">${cfg.title}</div>
       <div class="empty-state-body">${cfg.body}</div>
       <span class="badge badge-accent" style="margin-top:4px">Milestone ${cfg.badge}</span>
-    </div>
-  `;
+    </div>`;
 }

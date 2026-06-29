@@ -1,14 +1,13 @@
-# Dglopa Platform — DT-001 Foundation
+# Dglopa Platform
 
-**Milestone:** M1 – Foundation & Migration  
-**Version:** 1.0.0  
-**Status:** ✅ Foundation complete
+**Version:** 1.1.0 (DT-002)  
+**Status:** M1 complete — Foundation + Product Master
 
 ---
 
 ## Overview
 
-Offline-first pharmacy operations PWA built on vanilla HTML5, CSS3, ES2022+, Dexie.js, and a Service Worker. No framework dependencies.
+Offline-first pharmacy operations PWA. Vanilla HTML5/CSS3/ES2022+, Dexie.js IndexedDB, Service Worker. No framework dependencies.
 
 ---
 
@@ -16,142 +15,191 @@ Offline-first pharmacy operations PWA built on vanilla HTML5, CSS3, ES2022+, Dex
 
 ```
 dglopa/
-├── index.html            # App entry point
-├── app.js                # Boot sequence + wiring
-├── manifest.json         # PWA manifest
-├── sw.js                 # Service Worker (cache-first)
+├── index.html
+├── app.js
+├── manifest.json
+├── sw.js
 │
 ├── css/
-│   ├── tokens.css        # Design tokens (colors, type, spacing)
-│   ├── global.css        # Reset + base styles
-│   └── components.css    # All reusable component styles
+│   ├── tokens.css
+│   ├── global.css
+│   └── components.css
 │
 ├── js/
-│   └── router.js         # Hash-based screen router
+│   └── router.js
 │
 ├── db/
-│   └── database.js       # Dexie.js DB — all 14 tables, versioned
+│   ├── database.js              ← Dexie schema v1 + v2
+│   └── migrations/
+│       ├── 001_initial.js
+│       └── 002_product_master.js
 │
 ├── components/
-│   ├── toast.js          # Toast notifications
-│   ├── modal.js          # Bottom-sheet modal
-│   └── loadingOverlay.js # Full-screen loading overlay
+│   ├── toast.js
+│   ├── modal.js
+│   └── loadingOverlay.js
 │
 ├── screens/
-│   ├── home.js           # Command Center shell (placeholder cards)
-│   ├── settings.js       # Settings screen (version + DB info)
-│   └── placeholder.js    # Stub renderer for all other screens
+│   ├── home.js
+│   ├── settings.js
+│   ├── placeholder.js
+│   └── products/
+│       ├── productsScreen.js    ← DPM controller
+│       ├── productForm.js       ← Add / Edit form
+│       └── productProfile.js   ← Read-only profile view
 │
 ├── services/
-│   └── errorHandler.js   # Global error + rejection handler
+│   ├── errorHandler.js
+│   └── productService.js       ← CRUD, search, validation, dedup
 │
 ├── utils/
-│   └── helpers.js        # formatNaira, formatDate, debounce, uid…
+│   ├── helpers.js
+│   ├── idGenerator.js          ← PRD-000001, SUP-000001, etc.
+│   └── normalizer.js           ← Duplicate detection
 │
-└── assets/
-    └── icons/            # Place icon-192.png and icon-512.png here
+└── assets/icons/
+    ├── icon-192.png  ← required for PWA install
+    └── icon-512.png
 ```
 
 ---
 
-## Build Instructions
+## Build & Deploy
 
-No build step. Pure static files.
-
-### Local development
+No build step. Static files only.
 
 ```bash
-# Python 3
+# Local dev
 python -m http.server 8080
-
-# Node.js
+# or
 npx serve .
-
-# Then open:
-# http://localhost:8080
 ```
 
-### GitHub Pages deployment
+**GitHub Pages:** Push folder contents to repo root. Enable Pages → main branch.
 
-1. Push the `dglopa/` folder contents to the repository root (or a `/docs` folder if configured).
-2. Enable GitHub Pages in repository Settings → Pages → Branch: `main`.
-3. Access via `https://uniqueapps-dev.github.io/<repo-name>/`.
-
-### PWA Icons
-
-Place two icon files in `assets/icons/`:
-- `icon-192.png` — 192×192px
-- `icon-512.png` — 512×512px
-
-Without these, the app still functions but will not pass full PWA installability checks.
+**Icons:** Place `icon-192.png` (192×192) and `icon-512.png` (512×512) in `assets/icons/`.
 
 ---
 
 ## Database Schema
 
-All 14 tables initialized via Dexie.js (IndexedDB). Empty at startup.
+### Migration History
 
-| Table | Primary Key | Notable Indexes |
+| Migration | Dexie Version | Description |
 |---|---|---|
-| Products | `++id` | `barcode`, `name`, `category`, `supplierId` |
-| InventoryLots | `++id` | `productId`, `expiryDate`, `invoiceId` |
-| Suppliers | `++id` | `code`, `name` |
-| SupplierInvoices | `++id` | `supplierId`, `invoiceDate`, `status` |
-| Sales | `++id` | `receiptNumber`, `saleDate`, `staffId` |
-| SaleLines | `++id` | `saleId`, `productId` |
-| StockMovements | `++id` | `productId`, `lotId`, `type` |
-| Demand | `++id` | `productId`, `loggedAt` |
-| Payments | `++id` | `referenceId`, `method`, `status` |
-| PurchaseHistory | `++id` | `productId`, `supplierId` |
-| PriceHistory | `++id` | `productId`, `effectiveDate` |
-| ReviewQueue | `++id` | `productId`, `priority`, `status` |
-| Settings | `&key` | — |
-| AuditLog | `++id` | `entity`, `entityId`, `action` |
+| 001_initial | v1 | Foundation — 14 empty tables |
+| 002_product_master | v2 | Full schema upgrade, immutable IDs |
 
-**Schema versioning:** Add new `this.version(N).stores({...})` blocks to `db/database.js`. Never modify past versions.
+### ID Format
+
+All primary keys are app-generated immutable strings:
+
+| Prefix | Entity |
+|---|---|
+| PRD-NNNNNN | Products |
+| SUP-NNNNNN | Suppliers |
+| LOT-NNNNNN | InventoryLots |
+| INV-NNNNNN | SupplierInvoices |
+| SAL-NNNNNN | Sales |
+| DEM-NNNNNN | Demand |
+| PAY-NNNNNN | Payments |
+| MOV-NNNNNN | StockMovements |
+| PUR-NNNNNN | PurchaseHistory |
+| REV-NNNNNN | ReviewQueue |
+
+Sequences stored in `Settings` table as `seq_PRD`, `seq_SUP`, etc.
+
+### Products (v2)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | &string | PRD-NNNNNN, immutable |
+| productName | string | Required |
+| normalizedName | string | Dedup key, indexed |
+| genericName | string | |
+| brand | string | |
+| strength | string | |
+| dosageForm | string | Required |
+| category | string | |
+| baseUnit | string | Required |
+| receivingUnits | string | |
+| sellingUnits | string | |
+| lifecycleStatus | string | Active / Discontinued / Archived |
+| healthScore | null | Reserved |
+| preferredSupplierId | string\|null | |
+| notes | string | |
+| createdAt / updatedAt | timestamp | |
+
+### Suppliers (v2)
+
+Full schema: SupplierName, ContactPerson, Phone, WhatsApp, Email, PaymentMethod, AdvancePaymentPercentage, CreditDays, SettlementDay, CreditLimit, PreferredOrderingMethod, MinimumOrderValue, LeadTime, Status, Notes.
+
+### Barcodes (v2 — new table)
+
+Empty. Future multi-barcode per product support. No unique constraint on barcode column (intentional).
+
+---
+
+## Product Master (DPM)
+
+**Screen:** Inventory tab → Product Master
+
+| Feature | Status |
+|---|---|
+| Add Product | ✅ |
+| Edit Product | ✅ |
+| Archive / Restore | ✅ |
+| View Profile | ✅ |
+| Search (name/generic/brand/strength/form/category) | ✅ |
+| Filter by lifecycle status | ✅ |
+| Duplicate detection (normalizedName composite key) | ✅ |
+| Validation (name, dosage form, base unit) | ✅ |
+| Immutable IDs (PRD-NNNNNN) | ✅ |
+| Future sections placeholder | ✅ |
 
 ---
 
 ## Navigation
 
-| Nav Item | Screen ID | Status |
+| Tab | Screen | Status |
 |---|---|---|
-| Home | `screen-home` | ✅ Command Center shell |
-| Receive | `screen-receive` | 🔲 M2 placeholder |
-| Sales | `screen-sales` | 🔲 M3 placeholder |
-| Inventory | `screen-inventory` | 🔲 M4 placeholder |
-| Demand | `screen-demand` | 🔲 M5 placeholder |
-| Suppliers | `screen-suppliers` | 🔲 M6 placeholder |
-| More | `screen-more` | ✅ Settings entry point |
-| Settings | `screen-settings` | ✅ Version + DB info |
-
----
-
-## Acceptance Criteria
-
-| Criterion | Status |
-|---|---|
-| Installs as PWA | ✅ manifest.json + SW registered |
-| Works offline | ✅ Cache-first SW, IndexedDB local |
-| IndexedDB initializes | ✅ All 14 tables via Dexie.js |
-| Navigation functions | ✅ Hash-based router, 7 nav items |
-| Placeholder screens load | ✅ All stubs render |
-| No console errors | ✅ Global error handler active |
-| Modular folder structure | ✅ 9 directories |
-| No business logic | ✅ Data layer only |
+| Home | Command Center | ✅ DT-001 |
+| Receive | Stub | 🔲 M2 |
+| Sales | Stub | 🔲 M3 |
+| **Inventory** | **Product Master** | ✅ **DT-002** |
+| Demand | Stub | 🔲 M5 |
+| Suppliers | Stub | 🔲 M6 |
+| More → Settings | Settings | ✅ DT-001 |
 
 ---
 
 ## Changelog
 
+### v1.1.0 — DT-002 Product Master (2026-06-28)
+
+**Part A — Foundation Upgrade**
+- Immutable app-generated IDs (PRD/SUP/LOT/INV/SAL/DEM/PAY/MOV/PUR/REV-NNNNNN)
+- `idGenerator.js` — atomic sequence via IndexedDB transaction
+- Migration framework: `db/migrations/` — 001_initial, 002_product_master markers
+- Dexie schema v2 applied; v1 preserved verbatim
+- Unique barcode constraint removed; `Barcodes` table created for future multi-barcode support
+- `normalizer.js` — product name normalization for duplicate detection
+
+**Parts B–G — Schema Upgrades**
+- Products: full 14-field schema + `normalizedName` dedup index
+- Suppliers: full schema (payment policy, ordering policy, delivery policy, performance)
+- InventoryLots: QuantityReceived, QuantityAvailable, UnitCost, SellingPrice, OwnerType, BatchNumber, ExpiryDate, ShelfLocation, Status
+- StockMovements: MovementID, Quantity, BalanceAfter, MovementType, Reason, Timestamp
+- PurchaseHistory: PurchaseID, InvoiceNumber, Quantity, UnitCost, PurchaseDate
+- ReviewQueue: ReviewID, Category, Severity, AssignedTo, DueDate, Status, Notes
+
+**Part H — Dglopa Product Master (DPM)**
+- `productService.js` — createProduct, updateProduct, archiveProduct, restoreProduct, getProduct, getAllProducts, searchProducts, findDuplicate, validateProduct
+- `productsScreen.js` — list, search, filter tabs, add modal, edit modal, profile view, archive/restore
+- `productForm.js` — reusable add/edit form with dropdowns (16 dosage forms, 20 categories, 12 units)
+- `productProfile.js` — read-only profile with future-section placeholders
+- Product Master CSS: filter tabs, form sections, profile grid, form error banner
+- No regression from DT-001
+
 ### v1.0.0 — DT-001 Foundation (2026-06-27)
-- App shell: header, bottom nav, main content area
-- PWA: manifest.json, Service Worker (cache-first)
-- IndexedDB: 14 tables, version 1 schema via Dexie.js
-- Router: hash-based, 8 registered screens
-- Screens: Home Command Center, Settings, 5 placeholder stubs
-- Components: Toast, Modal, LoadingOverlay
-- Services: Global error handler
-- Utils: formatNaira, formatDate, debounce, uid, safeJSON, sleep
-- Design tokens: full color, type, spacing, radius, shadow system
-- No business logic implemented
+- App shell, PWA, Service Worker, IndexedDB, Router, Home CC, Settings, placeholder screens, Toast, Modal, LoadingOverlay, global error handler
