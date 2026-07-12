@@ -21,6 +21,11 @@ const PREFIXES = {
   StockMovement:   'MOV',
   PurchaseHistory: 'PUR',
   ReviewQueue:     'REV',
+  ProductAlias:    'ALI',
+  ImportAudit:     'IMP',
+  ReceivingSession:       'REC',
+  CommercialProfile:      'CPS',
+  CommercialPriceHistory: 'CPH',
 };
 
 /**
@@ -44,3 +49,4 @@ export async function nextId(entity) {
 }
 
 export { PREFIXES };
+

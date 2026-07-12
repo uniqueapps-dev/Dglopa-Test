@@ -1,26 +1,38 @@
 /**
  * DGLOPA PLATFORM — PRODUCT SERVICE
- * All Product Master CRUD, search, and validation logic.
- * No UI here. Called by the Products screen.
+ * DT-002B: Lifecycle extended with 'Merged'; archive/restore delegate
+ *          to softDelete utility for consistent audit trail.
  */
 
-import { db }           from '../db/database.js';
-import { nextId }       from '../utils/idGenerator.js';
-import { normalizeName, buildDedupKey } from '../utils/normalizer.js';
+import { db }            from '../db/database.js';
+import { createProfile }  from './commercialProfileService.js';
+import { nextId }        from '../utils/idGenerator.js';
+import { buildDedupKey } from '../utils/normalizer.js';
+import { archiveRecord, restoreRecord } from './softDelete.js';
+
+// Canonical lifecycle values — Products only (DT-002B adds Merged)
+export const LIFECYCLE_STATUSES = [
+  'Trial',
+  'Active',
+  'Slow Moving',
+  'Sleeping',
+  'Discontinued',
+  'Archived',
+  'Merged',      // DT-002B: set by ProductMergeService; not user-selectable in the form
+];
+
+// Values visible in the Product Master form (excludes Merged — system-only)
+export const SELECTABLE_LIFECYCLE_STATUSES = LIFECYCLE_STATUSES.filter((s) => s !== 'Merged');
 
 // ================================================================
 // VALIDATION
 // ================================================================
 
-/**
- * Validate a product payload before save.
- * @returns {{ valid: boolean, errors: string[] }}
- */
 export function validateProduct(data) {
   const errors = [];
-  if (!data.productName?.trim())  errors.push('Product Name is required.');
-  if (!data.dosageForm?.trim())   errors.push('Dosage Form is required.');
-  if (!data.baseUnit?.trim())     errors.push('Base Unit is required.');
+  if (!data.productName?.trim()) errors.push('Product Name is required.');
+  if (!data.dosageForm?.trim())  errors.push('Dosage Form is required.');
+  if (!data.baseUnit?.trim())    errors.push('Base Unit is required.');
   return { valid: errors.length === 0, errors };
 }
 
@@ -28,17 +40,9 @@ export function validateProduct(data) {
 // DUPLICATE DETECTION
 // ================================================================
 
-/**
- * Check if a product with the same normalized composite key already exists.
- * Excludes the product being edited (by its own ID).
- * @returns {Promise<object|null>} existing product or null
- */
 export async function findDuplicate(productName, strength, dosageForm, excludeId = null) {
   const key = buildDedupKey(productName, strength, dosageForm);
-  const match = await db.Products
-    .where('normalizedName')
-    .equals(key)
-    .first();
+  const match = await db.Products.where('normalizedName').equals(key).first();
   if (!match) return null;
   if (excludeId && match.id === excludeId) return null;
   return match;
@@ -48,11 +52,6 @@ export async function findDuplicate(productName, strength, dosageForm, excludeId
 // CREATE
 // ================================================================
 
-/**
- * Add a new product.
- * @param {object} data — raw form payload
- * @returns {Promise<string>} new product ID
- */
 export async function createProduct(data) {
   const { valid, errors } = validateProduct(data);
   if (!valid) throw new Error(errors.join(' '));
@@ -63,27 +62,37 @@ export async function createProduct(data) {
   const id  = await nextId('Product');
   const now = Date.now();
 
-  const record = {
+  await db.Products.add({
     id,
     productName:         data.productName.trim(),
     normalizedName:      buildDedupKey(data.productName, data.strength, data.dosageForm),
-    genericName:         data.genericName?.trim()  || '',
-    brand:               data.brand?.trim()        || '',
-    strength:            data.strength?.trim()     || '',
+    genericName:         data.genericName?.trim()    || '',
+    brand:               data.brand?.trim()          || '',
+    strength:            data.strength?.trim()       || '',
     dosageForm:          data.dosageForm.trim(),
-    category:            data.category?.trim()     || '',
+    category:            data.category?.trim()       || '',
     baseUnit:            data.baseUnit.trim(),
-    receivingUnits:      data.receivingUnits?.trim()  || '',
-    sellingUnits:        data.sellingUnits?.trim()    || '',
-    lifecycleStatus:     data.lifecycleStatus       || 'Active',
-    healthScore:         null,   // reserved — no calculation
-    preferredSupplierId: data.preferredSupplierId   || null,
-    notes:               data.notes?.trim()         || '',
+    receivingUnits:      data.receivingUnits?.trim() || '',
+    sellingUnits:        data.sellingUnits?.trim()   || '',
+    lifecycleStatus:     data.lifecycleStatus        || 'Active',
+    healthScore:         null,
+    preferredSupplierId: data.preferredSupplierId    || null,
+    notes:               data.notes?.trim()          || '',
+    imageURL:            data.imageURL?.trim()       || null,
+    thumbnailURL:        data.thumbnailURL?.trim()   || null,
+    // Merge fields — null until ProductMergeService sets them
+    mergedIntoId:        null,
+    mergedDate:          null,
+    mergedReason:        null,
     createdAt:           now,
     updatedAt:           now,
-  };
+  });
 
-  await db.Products.add(record);
+  // DT-004B: Auto-create CommercialProfile for every new product
+  await createProfile(id).catch((err) =>
+    console.warn('[ProductService] CommercialProfile creation failed (non-fatal):', err.message)
+  );
+
   return id;
 }
 
@@ -91,16 +100,15 @@ export async function createProduct(data) {
 // UPDATE
 // ================================================================
 
-/**
- * Update an existing product.
- * @param {string} id — PRD-NNNNNN
- * @param {object} data — partial or full payload
- */
 export async function updateProduct(id, data) {
   const existing = await db.Products.get(id);
   if (!existing) throw new Error(`Product not found: ${id}`);
 
-  // Merge
+  // Prevent editing a merged product
+  if (existing.lifecycleStatus === 'Merged') {
+    throw new Error(`Product ${id} has been merged into ${existing.mergedIntoId} and cannot be edited.`);
+  }
+
   const merged = { ...existing, ...data };
   const { valid, errors } = validateProduct(merged);
   if (!valid) throw new Error(errors.join(' '));
@@ -108,91 +116,91 @@ export async function updateProduct(id, data) {
   const dup = await findDuplicate(merged.productName, merged.strength, merged.dosageForm, id);
   if (dup) throw new Error(`Duplicate detected: "${dup.productName}" (${dup.id}) has the same name, strength, and form.`);
 
-  const updated = {
+  await db.Products.put({
     ...merged,
-    productName:     merged.productName.trim(),
-    normalizedName:  buildDedupKey(merged.productName, merged.strength, merged.dosageForm),
-    updatedAt:       Date.now(),
-  };
-
-  await db.Products.put(updated);
+    productName:    merged.productName.trim(),
+    normalizedName: buildDedupKey(merged.productName, merged.strength, merged.dosageForm),
+    updatedAt:      Date.now(),
+  });
 }
 
 // ================================================================
-// ARCHIVE / RESTORE
+// ARCHIVE / RESTORE  (now delegate to softDelete for audit trail)
 // ================================================================
 
 export async function archiveProduct(id) {
   const p = await db.Products.get(id);
   if (!p) throw new Error(`Product not found: ${id}`);
-  await db.Products.update(id, { lifecycleStatus: 'Archived', updatedAt: Date.now() });
+  if (p.lifecycleStatus === 'Merged') throw new Error('Cannot archive a merged product.');
+  await archiveRecord('Products', id);
 }
 
 export async function restoreProduct(id) {
   const p = await db.Products.get(id);
   if (!p) throw new Error(`Product not found: ${id}`);
-  await db.Products.update(id, { lifecycleStatus: 'Active', updatedAt: Date.now() });
+  if (p.lifecycleStatus === 'Merged') throw new Error('Cannot restore a merged product.');
+  await restoreRecord('Products', id);
 }
 
 // ================================================================
 // READ
 // ================================================================
 
-/** Get one product by ID */
-export async function getProduct(id) {
-  return db.Products.get(id);
-}
-
-/** Get all products, sorted by productName */
-export async function getAllProducts() {
-  return db.Products.orderBy('productName').toArray();
-}
+export async function getProduct(id)  { return db.Products.get(id); }
+export async function getAllProducts() { return db.Products.orderBy('productName').toArray(); }
 
 // ================================================================
 // SEARCH
 // ================================================================
 
 /**
- * Full-text search across productName, genericName, brand.
- * Filters by lifecycleStatus if provided.
- * Returns max 200 results.
+ * Full-text search. Excludes 'Merged' products from all filters
+ * unless statusFilter is explicitly 'Merged' or 'All'.
  */
 export async function searchProducts({ query = '', statusFilter = 'Active' } = {}) {
   const q = query.trim().toLowerCase();
 
-  let collection = db.Products.toCollection();
-
-  // Status filter
+  let collection;
   if (statusFilter && statusFilter !== 'All') {
-    collection = db.Products
-      .where('lifecycleStatus')
-      .equals(statusFilter);
+    collection = db.Products.where('lifecycleStatus').equals(statusFilter);
+  } else {
+    collection = db.Products.toCollection();
   }
 
   let results = await collection.toArray();
 
-  // Text filter (client-side — dataset fits in memory)
+  // Suppress merged products from 'All' view — they're system records
+  if (statusFilter === 'All') {
+    results = results.filter((p) => p.lifecycleStatus !== 'Merged');
+  }
+
   if (q) {
     results = results.filter((p) =>
-      p.productName?.toLowerCase().includes(q)  ||
-      p.genericName?.toLowerCase().includes(q)  ||
-      p.brand?.toLowerCase().includes(q)        ||
-      p.strength?.toLowerCase().includes(q)     ||
-      p.dosageForm?.toLowerCase().includes(q)   ||
+      p.productName?.toLowerCase().includes(q) ||
+      p.genericName?.toLowerCase().includes(q) ||
+      p.brand?.toLowerCase().includes(q)       ||
+      p.strength?.toLowerCase().includes(q)    ||
+      p.dosageForm?.toLowerCase().includes(q)  ||
       p.category?.toLowerCase().includes(q)
     );
   }
 
-  // Sort by name
   results.sort((a, b) => a.productName.localeCompare(b.productName));
-
   return results.slice(0, 200);
 }
 
 // ================================================================
-// STATS (placeholder — no calculations)
+// STATS
 // ================================================================
 
 export async function getProductCount() {
   return db.Products.where('lifecycleStatus').equals('Active').count();
+}
+
+export async function getProductCountByStatus() {
+  const all = await db.Products.toArray();
+  return all.reduce((acc, p) => {
+    acc[p.lifecycleStatus] = (acc[p.lifecycleStatus] ?? 0) + 1;
+    return acc;
+  }, {});
 }

@@ -65,8 +65,14 @@
       <!-- SALES -->
       <section id="screen-sales"     class="screen" aria-label="Point of Sale"></section>
 
-      <!-- INVENTORY -->
+      <!-- INVENTORY (Live Inventory - DT-006) -->
       <section id="screen-inventory" class="screen" aria-label="Inventory"></section>
+
+      <!-- PRODUCT MASTER (DT-002, accessible via More or internal navigation) -->
+      <section id="screen-products"  class="screen" aria-label="Product Master"></section>
+
+      <!-- REVIEW WORKSPACE (DT-008, accessible via More) -->
+      <section id="screen-review"    class="screen" aria-label="Review Queue"></section>
 
       <!-- DEMAND -->
       <section id="screen-demand"    class="screen" aria-label="Demand Log"></section>
@@ -77,6 +83,17 @@
       <!-- MORE -->
       <section id="screen-more"      class="screen" aria-label="More">
         <div class="section-title">More</div>
+        <div class="settings-section-label">Modules</div>
+        <div class="settings-list">
+          <div class="settings-item" id="goto-review">
+            <span class="settings-item-label">Review Queue</span>
+            <svg class="settings-item-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="settings-item" id="goto-products">
+            <span class="settings-item-label">Product Master</span>
+            <svg class="settings-item-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
         <div class="settings-section-label">Platform</div>
         <div class="settings-list">
           <div class="settings-item" id="goto-settings">

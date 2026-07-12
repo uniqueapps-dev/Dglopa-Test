@@ -9,10 +9,15 @@ import { initErrorHandler }   from './services/errorHandler.js';
 import { LoadingOverlay }     from './components/loadingOverlay.js';
 import { toast }              from './components/toast.js';
 import { navigate, registerScreen, registerNavItem, initRouter } from './js/router.js';
-import { renderHome }         from './screens/home.js';
+import { initCockpitScreen }  from './screens/cockpit/cockpitScreen.js';
 import { renderSettings }     from './screens/settings.js';
 import { renderPlaceholder }  from './screens/placeholder.js';
-import { initProductsScreen } from './screens/products/productsScreen.js';
+import { initProductsScreen }   from './screens/products/productsScreen.js';
+import { initInventoryScreen }   from './screens/inventory/inventoryScreen.js';
+import { initReceivingScreen }   from './screens/receiving/receivingDashboard.js';
+import { initSuppliersScreen }   from './screens/suppliers/suppliersScreen.js';
+import { initDemandScreen }        from './screens/demand/demandScreen.js';
+import { renderReviewWorkspace }    from './screens/review/reviewScreen.js';
 
 // ---- Boot sequence ----
 async function boot() {
@@ -41,25 +46,38 @@ async function boot() {
 // ---- Build UI ----
 async function buildUI() {
   // Home
-  const homeEl = document.getElementById('screen-home');
-  if (homeEl) homeEl.innerHTML = renderHome();
+  // Cockpit screen initialises itself when navigated to via the router
 
   // Placeholder screens (not yet built)
-  ['receive', 'sales', 'demand', 'suppliers', 'more'].forEach((id) => {
+  ['sales', 'more'].forEach((id) => {
     const el = document.getElementById(`screen-${id}`);
     if (el) el.innerHTML = renderPlaceholder(id);
   });
 
   // Register all screens
-  registerScreen('home');
-  registerScreen('receive');
+  registerScreen('home', initCockpitScreen);
   registerScreen('sales');
   registerScreen('demand');
   registerScreen('suppliers');
   registerScreen('more');
 
-  // Inventory → Product Master (DT-002)
-  registerScreen('inventory', initProductsScreen);
+  // Receive → Receiving Workflow (DT-004, wraps IME as one entry point)
+  registerScreen('receive', initReceivingScreen);
+
+  // Inventory → Live Inventory (DT-006)
+  registerScreen('inventory', initInventoryScreen);
+
+  // Products → Product Master (DT-002, accessible from within inventory or More)
+  registerScreen('products', initProductsScreen);
+
+  // Demand → Demand Log (DT-007)
+  registerScreen('demand', initDemandScreen);
+
+  // Review → Review Workspace (DT-008)
+  registerScreen('review', renderReviewWorkspace);
+
+  // Suppliers → SRM (DT-005)
+  registerScreen('suppliers', initSuppliersScreen);
 
   // Settings
   const settingsEl = document.getElementById('screen-settings');
@@ -83,6 +101,8 @@ async function buildUI() {
 
   // Settings links
   document.getElementById('goto-settings')?.addEventListener('click', () => navigate('settings'));
+  document.getElementById('goto-review')?.addEventListener('click', () => navigate('review'));
+  document.getElementById('goto-products')?.addEventListener('click', () => navigate('products'));
   document.getElementById('header-settings-btn')?.addEventListener('click', () => navigate('settings'));
 }
 

@@ -1,45 +1,49 @@
 /**
  * DGLOPA PLATFORM — PRODUCT FORM COMPONENT
  * Returns HTML string for the Add/Edit product form.
- * Suppliers list injected for the preferred supplier selector.
+ * DT-002A: All dropdowns sourced from lookup tables. DT-002B: Merged excluded from selectable statuses. (no hardcoded arrays).
  */
 
-export const DOSAGE_FORMS = [
-  'Tablet', 'Capsule', 'Syrup', 'Suspension', 'Solution',
-  'Injection', 'Cream', 'Ointment', 'Gel', 'Drops',
-  'Inhaler', 'Suppository', 'Patch', 'Powder', 'Sachet', 'Other',
-];
-
-export const CATEGORIES = [
-  'Analgesic', 'Antibiotic', 'Antifungal', 'Antiviral',
-  'Antihypertensive', 'Antidiabetic', 'Cardiovascular', 'CNS',
-  'Dermatology', 'ENT', 'Gastrointestinal', 'Haematology',
-  'Hormones', 'Immunology', 'Nutritional', 'Ophthalmology',
-  'Respiratory', 'Urinary', 'Vitamins & Supplements', 'Other',
-];
-
-export const UNITS = [
-  'Tablet', 'Capsule', 'Bottle', 'Vial', 'Ampoule',
-  'Sachet', 'Tube', 'Pack', 'Strip', 'Piece', 'ml', 'g',
+// Selectable lifecycle values in the product form.
+// 'Merged' is excluded — it is set only by ProductMergeService. (DT-002B)
+export const LIFECYCLE_STATUSES = [
+  'Trial',
+  'Active',
+  'Slow Moving',
+  'Sleeping',
+  'Discontinued',
+  'Archived',
 ];
 
 /**
  * Build the product form HTML.
- * @param {object|null} product — existing product for edit mode, null for add
- * @param {Array}       suppliers — list of { id, supplierName } objects
+ * @param {object|null} product   — existing product for edit, null for add
+ * @param {Array}       suppliers — [{ id, supplierName }]
+ * @param {object}      lookups   — { units, dosageForms, categories }
+ *                                  from lookupService.loadLookups()
  * @returns {string} HTML
  */
-export function buildProductForm(product = null, suppliers = []) {
-  const v = product ?? {};
+export function buildProductForm(product = null, suppliers = [], lookups = {}) {
+  const v      = product ?? {};
   const isEdit = !!product;
 
-  const optionList = (arr, selected = '') => arr
-    .map((o) => `<option value="${_e(o)}"${selected === o ? ' selected' : ''}>${_e(o)}</option>`)
-    .join('');
+  const { units = [], dosageForms = [], categories = [] } = lookups;
+
+  // Generic option builder for lookup rows {id, name}
+  const lookupOptions = (rows, selectedName = '') =>
+    rows.map((r) =>
+      `<option value="${_e(r.name)}"${r.name === selectedName ? ' selected' : ''}>${_e(r.name)}</option>`
+    ).join('');
 
   const supplierOptions = suppliers
-    .map((s) => `<option value="${_e(s.id)}"${v.preferredSupplierId === s.id ? ' selected' : ''}>${_e(s.supplierName)}</option>`)
-    .join('');
+    .map((s) =>
+      `<option value="${_e(s.id)}"${v.preferredSupplierId === s.id ? ' selected' : ''}>${_e(s.supplierName)}</option>`
+    ).join('');
+
+  const lifecycleOptions = LIFECYCLE_STATUSES
+    .map((s) =>
+      `<option value="${_e(s)}"${(v.lifecycleStatus || 'Active') === s ? ' selected' : ''}>${_e(s)}</option>`
+    ).join('');
 
   return `
     <form id="product-form" novalidate>
@@ -81,7 +85,7 @@ export function buildProductForm(product = null, suppliers = []) {
           <label class="form-label" for="f-dosageForm">Dosage Form <span class="req">*</span></label>
           <select class="form-select" id="f-dosageForm" name="dosageForm">
             <option value="">Select form…</option>
-            ${optionList(DOSAGE_FORMS, v.dosageForm)}
+            ${lookupOptions(dosageForms, v.dosageForm)}
           </select>
         </div>
       </div>
@@ -90,7 +94,7 @@ export function buildProductForm(product = null, suppliers = []) {
         <label class="form-label" for="f-category">Category</label>
         <select class="form-select" id="f-category" name="category">
           <option value="">Select category…</option>
-          ${optionList(CATEGORIES, v.category)}
+          ${lookupOptions(categories, v.category)}
         </select>
       </div>
 
@@ -102,7 +106,7 @@ export function buildProductForm(product = null, suppliers = []) {
           <label class="form-label" for="f-baseUnit">Base Unit <span class="req">*</span></label>
           <select class="form-select" id="f-baseUnit" name="baseUnit">
             <option value="">Select…</option>
-            ${optionList(UNITS, v.baseUnit)}
+            ${lookupOptions(units, v.baseUnit)}
           </select>
         </div>
 
@@ -121,7 +125,7 @@ export function buildProductForm(product = null, suppliers = []) {
                value="${_e(v.sellingUnits || '')}" placeholder="e.g. Per tablet">
       </div>
 
-      <!-- SUPPLIER -->
+      <!-- SOURCING -->
       <div class="form-section-label">Sourcing</div>
 
       <div class="form-group">
@@ -132,18 +136,14 @@ export function buildProductForm(product = null, suppliers = []) {
         </select>
       </div>
 
-      <!-- STATUS (edit only) -->
-      ${isEdit ? `
+      <!-- STATUS -->
       <div class="form-section-label">Status</div>
       <div class="form-group">
         <label class="form-label" for="f-lifecycleStatus">Lifecycle Status</label>
         <select class="form-select" id="f-lifecycleStatus" name="lifecycleStatus">
-          <option value="Active"${v.lifecycleStatus === 'Active' ? ' selected' : ''}>Active</option>
-          <option value="Discontinued"${v.lifecycleStatus === 'Discontinued' ? ' selected' : ''}>Discontinued</option>
-          <option value="Archived"${v.lifecycleStatus === 'Archived' ? ' selected' : ''}>Archived</option>
+          ${lifecycleOptions}
         </select>
       </div>
-      ` : ''}
 
       <!-- NOTES -->
       <div class="form-section-label">Notes</div>
@@ -167,7 +167,7 @@ export function buildProductForm(product = null, suppliers = []) {
  * Read form values into a plain object.
  */
 export function readFormValues(formEl) {
-  const fd = new FormData(formEl);
+  const fd   = new FormData(formEl);
   const data = {};
   fd.forEach((val, key) => { data[key] = val; });
   return data;

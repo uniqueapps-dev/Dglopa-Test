@@ -203,3 +203,88 @@ Empty. Future multi-barcode per product support. No unique constraint on barcode
 
 ### v1.0.0 — DT-001 Foundation (2026-06-27)
 - App shell, PWA, Service Worker, IndexedDB, Router, Home CC, Settings, placeholder screens, Toast, Modal, LoadingOverlay, global error handler
+
+### v1.2.0 — DT-002A Product Master Enhancements (2026-06-29)
+
+**Enhancement 1 — Product Aliases**
+- `ProductAliases` table: `&id (ALI-NNNNNN), productId, alias, source, createdAt`
+- `aliasService.js`: addAlias, bulkAddAliases, getAliasesForProduct, resolveAlias, searchAliases, removeAlias, removeAllAliasesForProduct
+- `ALI` prefix added to idGenerator
+- Source field is free-text string (manual/import/drug_db/etc.) — forward compatible
+
+**Enhancement 2 — Lookup Tables**
+- `Units` table: `++id, &name, symbol, status` — seeded with 14 units
+- `DosageForms` table: `++id, &name, status` — seeded with 20 forms
+- `Categories` table: `++id, &name, status` — seeded with 23 categories
+- `lookupService.js`: getActiveUnits, getAllUnits, addUnit, getActiveDosageForms, addDosageForm, getActiveCategories, addCategory, loadLookups (bulk fetch)
+- Seeding is idempotent — `runMigration003()` checks count before inserting
+- `productForm.js` updated to load from `loadLookups()` — no hardcoded arrays remain
+- `productsScreen.js` updated — lookups loaded in parallel with suppliers on modal open
+
+**Enhancement 3 — Product Images**
+- `imageURL` and `thumbnailURL` fields added to Products schema (no index)
+- Preserved through create/update cycle
+- No UI, no processing — reserved for AI Receiving module
+
+**Enhancement 4 — Product Lifecycle**
+- Extended to 6 canonical values: Trial, Active, Slow Moving, Sleeping, Discontinued, Archived
+- `LIFECYCLE_STATUSES` constant exported from both `productService.js` and `productForm.js`
+- Filter tabs in Product Master updated to show all 6 values + All
+- Badge colours: Active=green, Trial=accent, Slow Moving/Sleeping=amber, Discontinued/Archived=red
+- Backward compatible — existing Active/Archived/Discontinued records remain valid
+
+**Migration**
+- Dexie version 3 schema applied
+- `db/migrations/003_product_master_enhancements.js` marker added
+- `_recordMigrations()` updated to track migration 003
+
+### v1.3.0 — DT-002B Product Master Final Enhancements (2026-06-30)
+
+**Enhancement 1 — Product Merge Framework**
+- `productMergeService.js`: full merge infrastructure, no UI
+  - `mergeProducts(deadId, survivorId, reason, actor)` — atomic transaction across all child tables
+  - `dryRunMerge(deadId, survivorId)` — validation + transfer count preview, no writes
+  - `getMergeHistory(productId)` — AuditLog entries where product was either side of a merge
+  - `resolveProductId(productId)` — walks merge chain to find current survivor (max 10 hops, cycle-safe)
+- Child table registry (`CHILD_TABLES`) — currently covers InventoryLots, PurchaseHistory, PriceHistory, StockMovements, Demand, ProductAliases, ReviewQueue. Extensible for future modules (SaleLines, Barcodes).
+- **Reference preservation strategy (engineering recommendation, approved by default):** each transferred child record is stamped with `_originalProductId` (set once, never overwritten on subsequent merges) and `_transferredAt`. This preserves full audit history while keeping live queries simple — no joins required, foreign keys always point to the current survivor.
+- Dead product's name, generic name, and brand are auto-absorbed into the survivor's `ProductAliases` (source: `'merge'`) so it remains searchable under its old name.
+- Dead product is preserved (never deleted): `lifecycleStatus: 'Merged'`, `mergedIntoId`, `mergedDate`, `mergedReason` recorded.
+- Survivor must have lifecycle status Trial/Active/Slow Moving/Sleeping — merging into a Discontinued/Archived/Merged product is blocked.
+- `productService.js`: `updateProduct()`, `archiveProduct()`, `restoreProduct()` now reject merged products with a clear error.
+- `productsScreen.js`: merged products render as read-only in the profile view (shows "Merged into PRD-XXXXXX" instead of Edit/Archive buttons); excluded from the "All" filter view but visible under the dedicated "Merged" tab.
+
+**Enhancement 2 — Global Soft Delete Policy**
+- `softDelete.js`: platform-wide reusable utility
+  - `archiveRecord(table, id, actor)` — sets status → Archived
+  - `restoreRecord(table, id, actor)` — sets status → Active
+  - `deactivateRecord(table, id, actor)` — sets status → Inactive
+  - `markMerged(table, id, mergedIntoId, reason, actor)` — sets status → Merged, generic version usable beyond Products
+  - `cancelRecord(table, id, reason, actor)` — sets status → Cancelled
+  - `registerSoftDeleteTable(table, statusField, hasUpdatedAt)` — lets future modules self-register without editing this file
+- `SOFT_DELETE_STATUSES` constant: Active, Inactive, Archived, Merged, Cancelled
+- Every status change writes a corresponding `AuditLog` entry (`STATUS_CHANGE:<status>`) inside the same Dexie transaction — fully atomic
+- Pre-registered tables: Products, Suppliers, InventoryLots, SupplierInvoices, Sales, Demand, ReviewQueue, Payments
+- `productService.js` archive/restore now delegate to `softDelete.js` instead of direct table writes — single source of truth for audit logging
+
+**Schema (Dexie v4)**
+- `Products.mergedIntoId` — indexed, enables direct queries for merge chain resolution
+- `AuditLog.action` — indexed, enables fast lookup of MERGE / STATUS_CHANGE history without full table scans
+- No data migration required — existing records get `null`/`undefined` merge fields by default (treated correctly as "not merged")
+
+**No regression:** all DT-002 and DT-002A functionality (CRUD, search, validation, duplicate detection, lookup tables, aliases) verified unaffected. No UI changes beyond the read-only merged-product profile state and the new "Merged" filter tab.
+
+### v1.4.0 — DT-003A Intelligent Migration Engine Framework (2026-06-30)
+
+See `CHANGES.md` for full detail. Summary:
+
+- Full import pipeline built: Read → Parse → Normalize → Validate → Duplicate Detection → Product Matching → Supplier Matching → Review Queue → Import Preview → STOP.
+- **Zero database writes** — verified by code audit, documented in CHANGES.md.
+- Spreadsheet adapter (xlsx/xls/csv) via SheetJS — the platform's only new dependency, scoped to one file.
+- Stub adapters registered for PDF, AI Image Extraction, Camera Capture, Clipboard Paste — architecture proven extensible without implementing them yet.
+- Validation engine detects all 8 required issue categories with severity, category, row index, description, and suggested resolution.
+- Matching engine: exact composite key → alias resolution → fuzzy fallback for products; exact → fuzzy for suppliers. Read-only, never creates records. Resolves through DT-002B merged products.
+- Review Queue built in-memory, schema-matched to db.ReviewQueue for direct persistence in DT-003B.
+- Import Preview screen: summary stat cards, readiness banner, row-by-row detail with match status and issues.
+- "Receive" tab now hosts the IME entry point (file picker → pipeline → preview). No commit action exists in this build.
+- See `TODO.md` for DT-003B scope and `KNOWN_ISSUES.md` for documented limitations.
