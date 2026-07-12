@@ -49,7 +49,7 @@ async function buildUI() {
   // Cockpit screen initialises itself when navigated to via the router
 
   // Placeholder screens (not yet built)
-  ['sales', 'more'].forEach((id) => {
+  ['sales'].forEach((id) => {
     const el = document.getElementById(`screen-${id}`);
     if (el) el.innerHTML = renderPlaceholder(id);
   });
