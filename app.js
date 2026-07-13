@@ -57,8 +57,6 @@ async function buildUI() {
   // Register all screens
   registerScreen('home', initCockpitScreen);
   registerScreen('sales');
-  registerScreen('demand');
-  registerScreen('suppliers');
   registerScreen('more');
 
   // Receive → Receiving Workflow (DT-004, wraps IME as one entry point)

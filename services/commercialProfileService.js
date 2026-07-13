@@ -269,6 +269,11 @@ export async function updateReplacementCostManual(productId, amount, {
   await _updateProfile(productId, { replacementCostSnapshot: snapshot }, now);
   await _writeHistory(productId, PRICE_CHANGE_TYPE.REPLACEMENT_COST, null, amount, notes || 'Manual update', now);
 
+  // Set PricingStatus → ReviewRequired so the pharmacist knows the selling price
+  // has not yet been reviewed against the new replacement cost (DT-004A spec).
+  await _updateProfile(productId, { pricingStatus: PRICING_STATUS.REVIEW_REQUIRED }, now);
+  await _writeHistory(productId, PRICE_CHANGE_TYPE.PRICING_STATUS, PRICING_STATUS.CURRENT, PRICING_STATUS.REVIEW_REQUIRED, 'Auto-set: manual replacement cost update', now);
+
   // [LEGACY-COMPAT]
   await db.Products.update(productId, { lastCost: amount, updatedAt: now });
 }

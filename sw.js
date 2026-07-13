@@ -3,7 +3,7 @@
  * DT-006: Live Inventory modules added to precache.
  */
 
-const CACHE_NAME = 'dglopa-v23';
+const CACHE_NAME = 'dglopa-v25';
 
 const PRECACHE = [
   './',

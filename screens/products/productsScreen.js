@@ -20,7 +20,7 @@ let _lastResults  = [];
 
 // ---- Entry point called by router onEnter ----
 export async function initProductsScreen() {
-  const container = document.getElementById('screen-inventory');
+  const container = document.getElementById('screen-products');
   if (!container) return;
   _render(container);
   await _loadList();

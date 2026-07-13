@@ -37,7 +37,7 @@ let _query          = '';
 // ================================================================
 
 export async function initReviewScreen() {
-  const container = document.getElementById('screen-more');
+  const container = document.getElementById('screen-review');
   if (!container) return;
   await _render(container);
 }
@@ -299,7 +299,7 @@ async function _openResolutionPanel(itemId) {
     await resolveItem(itemId, _getNote());
     toast('Item resolved.', 'success');
     closeModal();
-    const container = document.getElementById('screen-more');
+    const container = document.getElementById('screen-review');
     if (container) await _render(container);
   });
 
@@ -307,7 +307,7 @@ async function _openResolutionPanel(itemId) {
     await ignoreItem(itemId, _getNote());
     toast('Item ignored.', 'warning');
     closeModal();
-    const container = document.getElementById('screen-more');
+    const container = document.getElementById('screen-review');
     if (container) await _render(container);
   });
 
@@ -340,7 +340,7 @@ async function _openResolutionPanel(itemId) {
         await createProductFromItem(itemId, data);
         toast('Product created and item resolved.', 'success');
         closeModal();
-        const container = document.getElementById('screen-more');
+        const container = document.getElementById('screen-review');
         if (container) await _render(container);
       } catch (err) {
         const errEl = createModal.querySelector('#form-error-banner');
@@ -367,7 +367,7 @@ async function _openResolutionPanel(itemId) {
         await createSupplierFromItem(itemId, data);
         toast('Supplier created and item resolved.', 'success');
         closeModal();
-        const container = document.getElementById('screen-more');
+        const container = document.getElementById('screen-review');
         if (container) await _render(container);
       } catch (err) {
         const errEl = createModal.querySelector('#sup-form-error');

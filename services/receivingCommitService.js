@@ -7,6 +7,8 @@
  *   2. StockMovements — one RECEIPT movement per lot
  *   3. PurchaseHistory — one record per committed line
  *   4. Products — update currentStock, lastCost, weightedAvgCost, lastReceivedDate
+ *   4B. CommercialProfile — ReplacementCostSnapshot (Verified) + activeSellingPrice
+ *       (post-transaction, non-fatal)
  *   5. ReviewQueue — persist flagged lines
  *   6. ReceivingSession — mark Completed + write summary
  *   7. AuditLog — batch entry
@@ -35,6 +37,10 @@
 import { db }           from '../db/database.js';
 import { nextId }       from '../utils/idGenerator.js';
 import { SESSION_STATUSES, advanceStatus, incrementLineCount } from './receivingSessionService.js';
+import {
+  updateReplacementCostFromReceiving,
+  setActiveSellingPrice,
+} from './commercialProfileService.js';
 
 const IME_VERSION = '1.4.0';
 
@@ -142,6 +148,12 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
         await _updateProductInventoryFields(productId, lots, startTime);
       }
 
+      // ---- Stage 4B: CommercialProfile — ReplacementCostSnapshot (DT-004B) ----
+      // Outside the Dexie transaction (CommercialPriceHistory is a separate table
+      // not included in this transaction's scope). Runs after the transaction
+      // completes. Non-fatal: a failure here does not roll back inventory.
+      // (See post-transaction block below)
+
       // ---- Stage 5: Review Queue ----
       let revIdx = 0;
       for (const line of reviewLines) {
@@ -194,6 +206,29 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
     counters.linesFailed = commitLines.length - counters.linesImported;
     console.error('[ReceivingCommit] Transaction failed — rolled back:', err);
     throw new Error(`Receiving commit failed and was rolled back. Database is unchanged.\n\nReason: ${err.message}`);
+  }
+
+  // ---- Stage 4B: CommercialProfile — post-transaction (non-fatal) ----
+  // Runs outside the Dexie transaction so CommercialPriceHistory can be written.
+  // A failure here does NOT roll back inventory — the session is already Completed.
+  // Each product gets a Verified ReplacementCostSnapshot from this delivery.
+  for (const line of commitLines) {
+    if (line.unitCost != null) {
+      await updateReplacementCostFromReceiving(line.productId, {
+        amount:       line.unitCost,
+        supplierId:   line.supplierId || session.supplierId || null,
+        supplierName: null, // enriched at read time by CommercialProfileService
+      }, startTime).catch((err) =>
+        console.warn('[ReceivingCommit] Stage 4B snapshot failed (non-fatal):', line.productId, err.message)
+      );
+    }
+    if (line.sellingPrice != null) {
+      await setActiveSellingPrice(line.productId, line.sellingPrice, {
+        notes: `Receiving — invoice ${session.invoiceNumber || sessionId}`,
+      }).catch((err) =>
+        console.warn('[ReceivingCommit] Stage 4B price failed (non-fatal):', line.productId, err.message)
+      );
+    }
   }
 
   return {
