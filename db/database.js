@@ -253,6 +253,66 @@ class DglopaDB extends Dexie {
       CommercialPriceHistory:
         '&id, productId, changeType, changedAt',
     });
+
+    // ============================================================
+    // VERSION 9 — Receiving Lines Persistence (DT-004-v9)
+    //
+    // Adds ReceivingLines table so that invoice lines entered during
+    // a receiving session survive navigation events.
+    //
+    // Previously, lines lived only in a module-level JS array in
+    // receivingSession.js. Navigating away (Back) then reopening the
+    // session reset the array to [], causing "No lines yet" — the
+    // core symptom of BLOCKER-003 / BLOCKER-004.
+    //
+    // Table: ReceivingLines
+    //   &id           — RL-NNNNNN primary key
+    //   sessionId     — FK to ReceivingSessions (indexed — primary query key)
+    //   lineNumber    — 1-based within session
+    //   productId     — null if unresolved
+    //   createdAt     — indexed for ordering
+    //
+    //   Plain (unindexed) fields mirror the ReceivingLine shape:
+    //   productName, matchedName, confidence, supplierId,
+    //   batchNumber, expiryDate, quantity, unit, unitCost,
+    //   sellingPrice, shelfLocation, ownerType, notes, reviewReasons[]
+    //
+    // BACKWARD COMPATIBILITY:
+    //   Existing sessions with in-memory-only lines are already committed
+    //   or lost (they were never persisted). No data migration required.
+    // ============================================================
+    this.version(9).stores({
+      ReceivingLines: '&id, sessionId, lineNumber, createdAt',
+    });
+
+    // ============================================================
+    // VERSION 10 — Receiving Persistence Architecture (RPA-001)
+    //
+    // Upgrades ReceivingLines with:
+    //   status    — Draft | Review | Committed | Archived
+    //               Enables soft archival — lines are NEVER physically deleted.
+    //               Physical deletion destroys invoice history, supplier dispute
+    //               records, and regulatory audit trails.
+    //   updatedAt — tracks last modification for sync and analytics
+    //
+    // The architecture change: ReceivingLines is now the SINGLE SOURCE OF
+    // TRUTH for invoice lines. The screen never uses a module-level array
+    // for correctness — only as a render cache rebuilt from the DB on every
+    // entry. commitReceivingSession() reads lines directly from ReceivingLines
+    // and archives them (status → Committed) rather than deleting them.
+    //
+    // ReceivingAttachments table (future-ready):
+    //   Prepared for OCR invoice capture, supplier dispute documentation,
+    //   and regulatory compliance. No UI or upload feature is implemented
+    //   in this version. The table exists so that attachments can be
+    //   associated with sessions and lines without a future schema migration.
+    // ============================================================
+    this.version(10).stores({
+      ReceivingLines: '&id, sessionId, lineNumber, status, productId, createdAt, updatedAt',
+
+      ReceivingAttachments:
+        '&id, sessionId, lineId, attachmentType, mimeType, createdAt',
+    });
   }
 }
 
@@ -416,6 +476,8 @@ async function _recordMigrations() {
     { id: '006_receiving_workflow',              dexieVersion: 6 },
     { id: '007_demand_log',                       dexieVersion: 7 },
     { id: '008_product_commercial_profile',        dexieVersion: 8 },
+    { id: '009_receiving_lines_persistence',         dexieVersion: 9 },
+    { id: '010_receiving_persistence_architecture',    dexieVersion: 10 },
   ];
   for (const m of migrations) {
     if (db.verno >= m.dexieVersion) {

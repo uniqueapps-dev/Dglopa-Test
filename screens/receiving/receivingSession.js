@@ -1,29 +1,46 @@
 /**
  * DGLOPA PLATFORM — RECEIVING SESSION SCREEN
- * DT-004: Manages an open receiving session — line entry, validation,
- * review, and commit.
+ * RPA-001: Receiving Persistence Architecture
  *
- * Sub-states within this screen:
- *   lines    — the invoice line list + entry form
- *   review   — review flagged lines before commit
- *   summary  — post-commit result display
+ * This screen is a PURE CONSUMER of receivingLineService.
+ * It owns zero state that affects correctness.
+ * The module-level _lines array is a render cache only —
+ * it is always rebuilt from the database at the start of every entry.
+ *
+ * DATA FLOW:
+ *   Add line    → receivingLineService.addLine()    → DB → re-render from DB
+ *   Edit line   → receivingLineService.updateLine() → DB → re-render from DB
+ *   Delete line → receivingLineService.archiveLine() → DB → re-render from DB
+ *   Enter screen → receivingLineService.getLinesForSession() → render
+ *   Commit      → receivingCommitService.commitReceivingSession() → reads DB itself
+ *
+ * NO LINE DATA IS HELD IN MEMORY FOR CORRECTNESS.
+ * Navigation → Back → re-entry: lines survive because they are in the DB.
+ * Browser refresh: lines survive because they are in the DB.
  */
 
-import { getSession, advanceStatus, SESSION_STATUSES } from '../../services/receivingSessionService.js';
-import { validateLine, matchProductForLine }            from '../../services/receivingLineService.js';
-import { commitReceivingSession }                       from '../../services/receivingCommitService.js';
-import { toast }                                        from '../../components/toast.js';
-import { openModal, closeModal }                        from '../../components/modal.js';
-import { LoadingOverlay }                               from '../../components/loadingOverlay.js';
-import { formatNaira, formatDate, debounce }            from '../../utils/helpers.js';
-import { loadLookups }                                  from '../../services/lookupService.js';
-import { db }                                           from '../../db/database.js';
+import { getSession, SESSION_STATUSES }                           from '../../services/receivingSessionService.js';
+import {
+  getLinesForSession,
+  addLine,
+  updateLine,
+  archiveLine,
+  matchProductForLine,
+  LINE_STATUS,
+}                                                                 from '../../services/receivingLineService.js';
+import { commitReceivingSession }                                 from '../../services/receivingCommitService.js';
+import { toast }                                                  from '../../components/toast.js';
+import { openModal, closeModal }                                  from '../../components/modal.js';
+import { LoadingOverlay }                                         from '../../components/loadingOverlay.js';
+import { formatNaira, formatDate, debounce }                      from '../../utils/helpers.js';
+import { loadLookups }                                            from '../../services/lookupService.js';
 
-// ---- Session-local state ----
-let _sessionId  = null;
-let _lines      = [];   // ReceivingLine[]
-let _onBack     = null;
+// ---- Render cache — rebuilt from DB on every entry ----
+// These variables have NO authority over what is correct.
+// The DB is always authoritative.
+let _sessionId   = null;
 let _lineCounter = 0;
+let _onBack      = null;
 
 // ================================================================
 // ENTRY POINT
@@ -31,9 +48,12 @@ let _lineCounter = 0;
 
 export async function renderSessionScreen(container, sessionId, onBack) {
   _sessionId   = sessionId;
-  _lines       = [];
-  _lineCounter = 0;
   _onBack      = onBack;
+  // _lineCounter reflects the highest lineNumber in DB — not a state-bearing counter
+  const lines = await getLinesForSession(sessionId, LINE_STATUS.DRAFT);
+  const reviewLines = await getLinesForSession(sessionId, LINE_STATUS.REVIEW);
+  const allActive = [...lines, ...reviewLines].sort((a, b) => a.lineNumber - b.lineNumber);
+  _lineCounter = allActive.length > 0 ? Math.max(...allActive.map((l) => l.lineNumber)) : 0;
   await _renderLines(container);
 }
 
@@ -47,6 +67,9 @@ async function _renderLines(container) {
 
   const isEditable = [SESSION_STATUSES.DRAFT, SESSION_STATUSES.IN_REVIEW].includes(session.status);
 
+  // Load active lines from DB
+  const lines = await _loadActiveLines(_sessionId);
+
   container.innerHTML = `
     <div class="rx-session-header">
       <div class="d-flex justify-between align-center">
@@ -58,25 +81,22 @@ async function _renderLines(container) {
       <div class="text-mono text-xs" style="color:var(--clr-text-3)">${_e(session.id)}</div>
     </div>
 
-    <!-- Line list -->
     <div id="rx-line-list" style="margin-top:var(--sp-4)"></div>
 
-    <!-- Add line button -->
     ${isEditable ? `
     <button class="btn btn-secondary btn-full" id="rx-add-line-btn" style="margin-top:var(--sp-3)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Add Invoice Line
     </button>` : ''}
 
-    <!-- Bottom actions -->
     <div class="form-actions" style="margin-top:var(--sp-5)">
       <button class="btn btn-secondary" id="rx-back-btn-2">Back</button>
-      ${isEditable && _lines.length > 0 ? `
+      ${isEditable && lines.length > 0 ? `
       <button class="btn btn-primary" id="rx-review-btn">Review &amp; Commit →</button>` : ''}
     </div>
   `;
 
-  _renderLineList(container);
+  _renderLineList(container, lines);
 
   container.querySelector('#rx-back-btn')?.addEventListener('click', _onBack);
   container.querySelector('#rx-back-btn-2')?.addEventListener('click', _onBack);
@@ -84,11 +104,17 @@ async function _renderLines(container) {
   container.querySelector('#rx-review-btn')?.addEventListener('click', () => _renderReview(container));
 }
 
-function _renderLineList(container) {
+async function _loadActiveLines(sessionId) {
+  const draft  = await getLinesForSession(sessionId, LINE_STATUS.DRAFT);
+  const review = await getLinesForSession(sessionId, LINE_STATUS.REVIEW);
+  return [...draft, ...review].sort((a, b) => a.lineNumber - b.lineNumber);
+}
+
+function _renderLineList(container, lines) {
   const listEl = container.querySelector('#rx-line-list');
   if (!listEl) return;
 
-  if (_lines.length === 0) {
+  if (lines.length === 0) {
     listEl.innerHTML = `
       <div class="empty-state" style="padding:var(--sp-8) 0">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
@@ -98,24 +124,26 @@ function _renderLineList(container) {
     return;
   }
 
-  listEl.innerHTML = _lines.map(_lineCard).join('');
+  listEl.innerHTML = lines.map(_lineCard).join('');
 
-  listEl.querySelectorAll('[data-line-idx]').forEach((el) => {
-    const idx = parseInt(el.dataset.lineIdx, 10);
-    el.querySelector('.rx-line-edit')?.addEventListener('click', () => _openLineModal(container, idx));
-    el.querySelector('.rx-line-delete')?.addEventListener('click', () => {
-      _lines.splice(idx, 1);
-      _renderLineList(container);
-      _refreshReviewBtn(container);
+  listEl.querySelectorAll('[data-line-id]').forEach((el) => {
+    const lineId = el.dataset.lineId;
+    el.querySelector('.rx-line-edit')?.addEventListener('click', () => _openLineModal(container, lineId));
+    el.querySelector('.rx-line-delete')?.addEventListener('click', async () => {
+      await archiveLine(lineId);
+      // Reload from DB and re-render — no array mutation
+      const updated = await _loadActiveLines(_sessionId);
+      _renderLineList(container, updated);
+      _syncReviewBtn(container, updated.length);
     });
   });
 }
 
-function _lineCard(line, idx) {
+function _lineCard(line) {
   const hasIssues = line.reviewReasons?.length > 0;
   const borderCls = hasIssues ? 'row-warning' : 'row-clean';
   return `
-    <div class="ime-row-card ${borderCls}" data-line-idx="${idx}" style="margin-bottom:var(--sp-2)">
+    <div class="ime-row-card ${borderCls}" data-line-id="${_e(line.id)}" style="margin-bottom:var(--sp-2)">
       <div class="d-flex justify-between align-center">
         <div class="fw-medium">${_e(line.productName || '(unnamed)')}</div>
         <div class="d-flex gap-2">
@@ -139,17 +167,28 @@ function _lineCard(line, idx) {
     </div>`;
 }
 
-function _refreshReviewBtn(container) {
-  const btn = container.querySelector('#rx-review-btn');
-  if (btn) btn.style.display = _lines.length > 0 ? '' : 'none';
+function _syncReviewBtn(container, lineCount) {
+  const actionsEl = container.querySelector('.form-actions');
+  if (!actionsEl) return;
+  const existing = actionsEl.querySelector('#rx-review-btn');
+  if (lineCount > 0 && !existing) {
+    const btn = document.createElement('button');
+    btn.className  = 'btn btn-primary';
+    btn.id         = 'rx-review-btn';
+    btn.innerHTML  = 'Review &amp; Commit →';
+    btn.addEventListener('click', () => _renderReview(container));
+    actionsEl.appendChild(btn);
+  } else if (lineCount === 0 && existing) {
+    existing.remove();
+  }
 }
 
 // ================================================================
 // LINE MODAL (Add / Edit)
 // ================================================================
 
-async function _openLineModal(container, editIdx = null) {
-  const existing = editIdx != null ? _lines[editIdx] : null;
+async function _openLineModal(container, editLineId = null) {
+  const existing = editLineId ? await getLinesForSession(_sessionId).then(rows => rows.find(r => r.id === editLineId)) : null;
   const lookups  = await loadLookups();
   const v = existing ?? {};
 
@@ -159,10 +198,10 @@ async function _openLineModal(container, editIdx = null) {
 
   const modal = openModal({
     id:    'rx-line-modal',
-    title: editIdx != null ? 'Edit Line' : 'Add Invoice Line',
+    title: editLineId ? 'Edit Line' : 'Add Invoice Line',
     bodyHTML: `
       <div id="rx-line-error" class="form-error-banner" style="display:none"></div>
-      <div id="rx-match-banner" style="display:none" class="ime-readiness-banner ready" style="margin-bottom:var(--sp-3)"></div>
+      <div id="rx-match-banner" style="display:none" class="ime-readiness-banner ready"></div>
 
       <div class="form-group">
         <label class="form-label" for="rl-product">Product Name <span class="req">*</span></label>
@@ -229,7 +268,7 @@ async function _openLineModal(container, editIdx = null) {
       <div class="form-actions">
         <button class="btn btn-secondary" id="rl-cancel-btn">Cancel</button>
         <button class="btn btn-primary" id="rl-save-btn">
-          ${editIdx != null ? 'Save Changes' : 'Add Line'}
+          ${editLineId ? 'Save Changes' : 'Add Line'}
         </button>
       </div>
     `,
@@ -244,10 +283,11 @@ async function _openLineModal(container, editIdx = null) {
     const result = await matchProductForLine(name);
     if (result) {
       matchBanner.textContent = `✓ Matched: ${result.productName} (${result.confidence})`;
+      matchBanner.className   = 'ime-readiness-banner ready';
       matchBanner.style.display = 'block';
     } else {
-      matchBanner.textContent = 'No match found — will be flagged for review or create new product.';
-      matchBanner.className = 'ime-readiness-banner blocked';
+      matchBanner.textContent = 'No match found — will be flagged for review.';
+      matchBanner.className   = 'ime-readiness-banner blocked';
       matchBanner.style.display = 'block';
     }
   }, 400);
@@ -256,19 +296,19 @@ async function _openLineModal(container, editIdx = null) {
   modal.querySelector('#rl-cancel-btn').addEventListener('click', closeModal);
 
   modal.querySelector('#rl-save-btn').addEventListener('click', async () => {
-    const errorEl  = modal.querySelector('#rx-line-error');
+    const errorEl = modal.querySelector('#rx-line-error');
     errorEl.style.display = 'none';
 
     const lineData = {
-      productName:  modal.querySelector('#rl-product').value.trim(),
-      quantity:     parseFloat(modal.querySelector('#rl-qty').value) || null,
-      unit:         modal.querySelector('#rl-unit').value,
-      unitCost:     modal.querySelector('#rl-cost').value !== '' ? parseFloat(modal.querySelector('#rl-cost').value) : null,
-      sellingPrice: modal.querySelector('#rl-price').value !== '' ? parseFloat(modal.querySelector('#rl-price').value) : null,
-      expiryDate:   modal.querySelector('#rl-expiry').value ? new Date(modal.querySelector('#rl-expiry').value).getTime() : null,
-      batchNumber:  modal.querySelector('#rl-batch').value.trim(),
-      shelfLocation:modal.querySelector('#rl-shelf').value.trim(),
-      ownerType:    modal.querySelector('#rl-owner').value,
+      productName:   modal.querySelector('#rl-product').value.trim(),
+      quantity:      parseFloat(modal.querySelector('#rl-qty').value) || null,
+      unit:          modal.querySelector('#rl-unit').value,
+      unitCost:      modal.querySelector('#rl-cost').value  !== '' ? parseFloat(modal.querySelector('#rl-cost').value)  : null,
+      sellingPrice:  modal.querySelector('#rl-price').value !== '' ? parseFloat(modal.querySelector('#rl-price').value) : null,
+      expiryDate:    modal.querySelector('#rl-expiry').value ? new Date(modal.querySelector('#rl-expiry').value).getTime() : null,
+      batchNumber:   modal.querySelector('#rl-batch').value.trim(),
+      shelfLocation: modal.querySelector('#rl-shelf').value.trim(),
+      ownerType:     modal.querySelector('#rl-owner').value,
     };
 
     if (!lineData.productName) {
@@ -277,28 +317,38 @@ async function _openLineModal(container, editIdx = null) {
       return;
     }
 
-    try {
-      const lineNumber = editIdx != null ? _lines[editIdx].lineNumber : ++_lineCounter;
-      const validated  = await validateLine(lineData, _sessionId, lineNumber);
+    const saveBtn = modal.querySelector('#rl-save-btn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
 
-      if (editIdx != null) {
-        _lines[editIdx] = validated;
+    try {
+      let savedLine;
+      if (editLineId) {
+        // Update existing line in DB
+        savedLine = await updateLine(editLineId, lineData);
       } else {
-        _lines.push(validated);
+        // Add new line to DB
+        const lineNumber = ++_lineCounter;
+        savedLine = await addLine(_sessionId, lineData, lineNumber);
       }
 
       closeModal();
-      _renderLineList(container);
-      _refreshReviewBtn(container);
 
-      if (validated.reviewReasons.length > 0) {
-        toast(`Line added with ${validated.reviewReasons.length} review item(s).`, 'warning');
+      // Reload from DB — never trust the in-memory state
+      const updated = await _loadActiveLines(_sessionId);
+      _renderLineList(container, updated);
+      _syncReviewBtn(container, updated.length);
+
+      if (savedLine.reviewReasons.length > 0) {
+        toast(`Line saved with ${savedLine.reviewReasons.length} review item(s).`, 'warning');
       } else {
-        toast('Line added.', 'success');
+        toast(editLineId ? 'Line updated.' : 'Line added.', 'success');
       }
     } catch (err) {
       errorEl.textContent = err.message;
       errorEl.style.display = 'block';
+      saveBtn.disabled = false;
+      saveBtn.textContent = editLineId ? 'Save Changes' : 'Add Line';
     }
   });
 }
@@ -308,8 +358,10 @@ async function _openLineModal(container, editIdx = null) {
 // ================================================================
 
 async function _renderReview(container) {
-  const commitLines = _lines.filter((l) => !l.reviewReasons?.length);
-  const reviewLines = _lines.filter((l)  =>  l.reviewReasons?.length);
+  // Load current state from DB — do not use any cached array
+  const allLines    = await _loadActiveLines(_sessionId);
+  const commitLines = allLines.filter((l) => !l.reviewReasons?.length);
+  const reviewLines = allLines.filter((l) =>  l.reviewReasons?.length);
   const session     = await getSession(_sessionId);
 
   container.innerHTML = `
@@ -318,7 +370,6 @@ async function _renderReview(container) {
       <button class="btn btn-secondary btn-sm" id="rx-back-to-lines">← Edit Lines</button>
     </div>
 
-    <!-- Summary cards -->
     <div class="ime-summary-grid">
       <div class="ime-stat-card">
         <div class="ime-stat-value text-green">${commitLines.length}</div>
@@ -335,7 +386,8 @@ async function _renderReview(container) {
       No lines are ready to commit. Resolve all issues before proceeding.
     </div>` : `
     <div class="ime-readiness-banner ready" style="margin-top:var(--sp-4)">
-      ✓ ${commitLines.length} line${commitLines.length !== 1 ? 's' : ''} ready. ${reviewLines.length > 0 ? `${reviewLines.length} line${reviewLines.length !== 1 ? 's' : ''} will go to the Review Queue instead.` : ''}
+      ✓ ${commitLines.length} line${commitLines.length !== 1 ? 's' : ''} ready.
+      ${reviewLines.length > 0 ? `${reviewLines.length} line${reviewLines.length !== 1 ? 's' : ''} will go to the Review Queue instead.` : ''}
     </div>`}
 
     ${reviewLines.length > 0 ? `
@@ -347,8 +399,7 @@ async function _renderReview(container) {
       </div>`).join('')}
     ` : ''}
 
-    <!-- Confirmation -->
-    <div class="ime-confirm-check" id="rx-confirm-check" style="margin-top:var(--sp-5)">
+    <div class="ime-confirm-check" style="margin-top:var(--sp-5)">
       <input type="checkbox" id="rx-confirm-cb" class="ime-confirm-cb">
       <label for="rx-confirm-cb" class="ime-confirm-label">
         I confirm this invoice is correct and ready to be committed to inventory.
@@ -363,13 +414,14 @@ async function _renderReview(container) {
     </div>
   `;
 
-  const cb = container.querySelector('#rx-confirm-cb');
+  const cb        = container.querySelector('#rx-confirm-cb');
   const commitBtn = container.querySelector('#rx-commit-btn');
-  cb.addEventListener('change', () => { commitBtn.disabled = !cb.checked || commitLines.length === 0; });
+  cb.addEventListener('change', () => {
+    commitBtn.disabled = !cb.checked || commitLines.length === 0;
+  });
 
   container.querySelector('#rx-back-to-lines').addEventListener('click', () => _renderLines(container));
   container.querySelector('#rx-back-to-lines-2').addEventListener('click', () => _renderLines(container));
-
   commitBtn.addEventListener('click', async () => {
     if (!cb.checked || commitLines.length === 0) return;
     await _handleCommit(container, session);
@@ -383,13 +435,14 @@ async function _renderReview(container) {
 async function _handleCommit(container, session) {
   LoadingOverlay.show('Committing to inventory…');
   try {
-    const result = await commitReceivingSession(_sessionId, _lines);
+    // Commit service reads from DB directly — no lines array passed
+    const result = await commitReceivingSession(_sessionId);
     LoadingOverlay.hide();
     _renderSummary(container, result, session);
     toast(`Receiving complete — ${result.linesImported} lot${result.linesImported !== 1 ? 's' : ''} created.`, 'success');
   } catch (err) {
     LoadingOverlay.hide();
-    toast('Commit failed — database rolled back.', 'error');
+    toast('Commit failed — database rolled back. Your lines are still saved.', 'error');
     container.innerHTML += `
       <div class="card" style="margin-top:var(--sp-4);border-color:var(--clr-red)">
         <div class="card-title text-red">Error</div>
@@ -418,8 +471,7 @@ function _renderSummary(container, result, session) {
       <div class="ime-stat-card"><div class="ime-stat-value text-${result.linesFailed > 0 ? 'red':'green'}">${result.linesFailed}</div><div class="ime-stat-label">Failed</div></div>
     </div>
 
-    <div class="settings-section-label">Details</div>
-    <div class="settings-list">
+    <div class="settings-list" style="margin-top:var(--sp-4)">
       <div class="settings-item" style="cursor:default">
         <span class="settings-item-label">Session ID</span>
         <span class="settings-item-value">${_e(result.sessionId)}</span>

@@ -24,6 +24,8 @@ const PREFIXES = {
   ProductAlias:    'ALI',
   ImportAudit:     'IMP',
   ReceivingSession:       'REC',
+  ReceivingLine:          'RL',
+  ReceivingAttachment:    'ATT',
   CommercialProfile:      'CPS',
   CommercialPriceHistory: 'CPH',
 };

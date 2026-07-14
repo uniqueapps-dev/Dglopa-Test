@@ -24,7 +24,7 @@ import { db, getDBVersion, openDB } from '../db/database.js';
 import { toast }                    from '../components/toast.js';
 import { openModal, closeModal }    from '../components/modal.js';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.2.0';
 
 // Tables to include in export/import (in dependency order for import)
 const EXPORT_TABLES = [
@@ -34,6 +34,8 @@ const EXPORT_TABLES = [
   'Products', 'ProductAliases', 'Barcodes',
   'InventoryLots',
   'ReceivingSessions',
+  'ReceivingLines',
+  'ReceivingAttachments',
   'PurchaseHistory',
   'StockMovements',
   'Demand',

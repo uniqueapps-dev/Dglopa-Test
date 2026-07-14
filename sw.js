@@ -3,7 +3,7 @@
  * DT-006: Live Inventory modules added to precache.
  */
 
-const CACHE_NAME = 'dglopa-v25';
+const CACHE_NAME = 'dglopa-v27';
 
 const PRECACHE = [
   './',
@@ -106,6 +106,9 @@ const PRECACHE = [
   './screens/cockpit/quickActions.js',
   './services/commercial/index.js',
   './services/commercialProfileService.js',
+  './services/receivingAttachmentService.js',
+  './db/migrations/010_receiving_persistence_architecture.js',
+  './db/migrations/009_receiving_lines_persistence.js',
   './screens/products/quickCostUpdate.js',
   './db/migrations/008_product_commercial_profile.js',
   './services/commercial/commercialConstants.js',

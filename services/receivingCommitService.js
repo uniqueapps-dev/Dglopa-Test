@@ -1,46 +1,44 @@
 /**
  * DGLOPA PLATFORM — RECEIVING COMMIT SERVICE
- * DT-004: Commits a validated receiving session into inventory.
+ * RPA-001: Receiving Persistence Architecture
  *
- * One atomic Dexie transaction per session commit:
- *   1. InventoryLots — one lot per committed line
- *   2. StockMovements — one RECEIPT movement per lot
- *   3. PurchaseHistory — one record per committed line
- *   4. Products — update currentStock, lastCost, weightedAvgCost, lastReceivedDate
- *   4B. CommercialProfile — ReplacementCostSnapshot (Verified) + activeSellingPrice
+ * Commits a validated receiving session to inventory.
+ *
+ * ARCHITECTURE CHANGE (RPA-001):
+ *   Previously accepted a `lines` array from the caller.
+ *   Now reads lines directly from ReceivingLines (DB) via receivingLineService.
+ *   The caller passes only the sessionId. This makes the commit reproducible
+ *   and independent of any in-memory state.
+ *
+ * SOFT ARCHIVAL (RPA-001):
+ *   After a successful commit, lines are marked Committed — never deleted.
+ *   Invoice history, supplier dispute records, and audit trails are preserved.
+ *
+ * PIPELINE:
+ *   1. InventoryLots        — one lot per committed line
+ *   2. StockMovements       — one RECEIPT movement per lot
+ *   3. PurchaseHistory      — one record per committed line
+ *   4. Products             — WAC, lastCost, currentStock, lastReceivedDate
+ *   4B. CommercialProfile   — ReplacementCostSnapshot (Verified) + activeSellingPrice
  *       (post-transaction, non-fatal)
- *   5. ReviewQueue — persist flagged lines
- *   6. ReceivingSession — mark Completed + write summary
- *   7. AuditLog — batch entry
- *
- * Lines with unresolved productId route to ReviewQueue; they do NOT
- * enter InventoryLots. The session is still marked Completed if at
- * least one line committed successfully.
- *
- * ReceivingLine shape (prepared by the UI / line entry service):
- *   {
- *     lineNumber:    number,       // 1-based within the session
- *     productId:     string|null,  // null = unresolved → ReviewQueue
- *     productName:   string,       // raw name from invoice
- *     supplierId:    string|null,
- *     batchNumber:   string,
- *     expiryDate:    number|null,  // epoch ms
- *     quantity:      number,
- *     unitCost:      number|null,
- *     sellingPrice:  number|null,
- *     shelfLocation: string,
- *     ownerType:     'Owner'|'Consignment',
- *     reviewReasons: string[],     // populated by validation
- *   }
+ *   5. ReviewQueue          — one entry per review reason on unresolved lines
+ *   6. ReceivingSession     — status → Completed, counts written
+ *   7. AuditLog             — single batch audit entry
+ *   8. ReceivingLines       — status → Committed (soft archival)
  */
 
-import { db }           from '../db/database.js';
-import { nextId }       from '../utils/idGenerator.js';
-import { SESSION_STATUSES, advanceStatus, incrementLineCount } from './receivingSessionService.js';
+import { db }                from '../db/database.js';
+import { nextId }            from '../utils/idGenerator.js';
+import { SESSION_STATUSES }  from './receivingSessionService.js';
+import {
+  getLinesForSession,
+  commitLines,
+  LINE_STATUS,
+}                            from './receivingLineService.js';
 import {
   updateReplacementCostFromReceiving,
   setActiveSellingPrice,
-} from './commercialProfileService.js';
+}                            from './commercialProfileService.js';
 
 const IME_VERSION = '1.4.0';
 
@@ -49,12 +47,13 @@ const IME_VERSION = '1.4.0';
 // ================================================================
 
 /**
- * @param {string}           sessionId
- * @param {ReceivingLine[]}  lines
- * @param {string}           [operator]
+ * Commit all lines for a session from the ReceivingLines table to inventory.
+ *
+ * @param {string} sessionId
+ * @param {string} [operator]
  * @returns {Promise<CommitResult>}
  */
-export async function commitReceivingSession(sessionId, lines, operator = 'system') {
+export async function commitReceivingSession(sessionId, operator = 'system') {
   const session = await db.ReceivingSessions.get(sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
   if (session.status === SESSION_STATUSES.COMPLETED) {
@@ -66,21 +65,23 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
 
   const startTime = Date.now();
 
-  const commitLines = lines.filter((l) => l.productId && l.quantity > 0 && !l.reviewReasons?.length);
-  const reviewLines = lines.filter((l) => !l.productId || l.quantity <= 0 || l.reviewReasons?.length);
+  // ---- Read lines from DB (not from caller) ----
+  const allLines    = await getLinesForSession(sessionId);
+  const commitLines_ = allLines.filter((l) => l.productId && l.quantity > 0 && !l.reviewReasons?.length);
+  const reviewLines = allLines.filter((l) => !l.productId || l.quantity <= 0 || l.reviewReasons?.length);
 
   const counters = {
-    linesRead:     lines.length,
+    linesRead:     allLines.length,
     linesImported: 0,
     linesReviewed: reviewLines.length,
     linesFailed:   0,
   };
 
   // Pre-allocate IDs outside the transaction
-  const lotIds      = await _genIds('InventoryLot',    commitLines.length);
-  const movIds      = await _genIds('StockMovement',   commitLines.length);
-  const purIds      = await _genIds('PurchaseHistory', commitLines.length);
-  const revIds      = await _genIds('ReviewQueue',     reviewLines.length * 3);
+  const lotIds = await _genIds('InventoryLot',    commitLines_.length);
+  const movIds = await _genIds('StockMovement',   commitLines_.length);
+  const purIds = await _genIds('PurchaseHistory', commitLines_.length);
+  const revIds = await _genIds('ReviewQueue',     reviewLines.length * 3);
 
   try {
     await db.transaction('rw', [
@@ -89,14 +90,14 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
     ], async () => {
 
       // ---- Stage 1: Inventory Lots ----
-      const lotMap = new Map(); // productId → { lots for WAC calc }
-      for (let i = 0; i < commitLines.length; i++) {
-        const line  = commitLines[i];
+      const lotMap = new Map();
+      for (let i = 0; i < commitLines_.length; i++) {
+        const line  = commitLines_[i];
         const lotId = lotIds[i];
         await db.InventoryLots.add({
           id:                lotId,
           productId:         line.productId,
-          supplierId:        line.supplierId      || session.supplierId || null,
+          supplierId:        line.supplierId || session.supplierId || null,
           invoiceId:         sessionId,
           quantityReceived:  line.quantity,
           quantityAvailable: line.quantity,
@@ -111,27 +112,27 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
         });
 
         if (!lotMap.has(line.productId)) lotMap.set(line.productId, []);
-        lotMap.get(line.productId).push({ qty: line.quantity, cost: line.unitCost, lotId });
+        lotMap.get(line.productId).push({ qty: line.quantity, cost: line.unitCost, lotId, sellingPrice: line.sellingPrice });
         counters.linesImported++;
       }
 
       // ---- Stage 2: Stock Movements ----
-      for (let i = 0; i < commitLines.length; i++) {
+      for (let i = 0; i < commitLines_.length; i++) {
         await db.StockMovements.add({
           id:           movIds[i],
-          productId:    commitLines[i].productId,
+          productId:    commitLines_[i].productId,
           lotId:        lotIds[i],
           movementType: 'Receipt',
-          quantity:     commitLines[i].quantity,
-          balanceAfter: null,  // DT-004: stock level engine deferred
+          quantity:     commitLines_[i].quantity,
+          balanceAfter: null,
           reason:       `Receiving session ${sessionId}`,
           timestamp:    startTime,
         });
       }
 
       // ---- Stage 3: Purchase History ----
-      for (let i = 0; i < commitLines.length; i++) {
-        const line = commitLines[i];
+      for (let i = 0; i < commitLines_.length; i++) {
+        const line = commitLines_[i];
         await db.PurchaseHistory.add({
           id:            purIds[i],
           productId:     line.productId,
@@ -147,12 +148,6 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
       for (const [productId, lots] of lotMap.entries()) {
         await _updateProductInventoryFields(productId, lots, startTime);
       }
-
-      // ---- Stage 4B: CommercialProfile — ReplacementCostSnapshot (DT-004B) ----
-      // Outside the Dexie transaction (CommercialPriceHistory is a separate table
-      // not included in this transaction's scope). Runs after the transaction
-      // completes. Non-fatal: a failure here does not roll back inventory.
-      // (See post-transaction block below)
 
       // ---- Stage 5: Review Queue ----
       let revIdx = 0;
@@ -183,7 +178,7 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
       // ---- Stage 6: Complete Session ----
       await db.ReceivingSessions.update(sessionId, {
         status:        SESSION_STATUSES.COMPLETED,
-        lineCount:     lines.length,
+        lineCount:     allLines.length,
         linesImported: counters.linesImported,
         linesReviewed: counters.linesReviewed,
         completedAt:   startTime,
@@ -196,28 +191,26 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
         entity:      'ReceivingSessions',
         entityId:    sessionId,
         action:      'RECEIVING_COMMIT',
-        detail:      { counters, invoiceNumber: session.invoiceNumber },
+        detail:      { counters, invoiceNumber: session.invoiceNumber, imeVersion: IME_VERSION },
         performedBy: operator,
         performedAt: startTime,
       });
     });
 
   } catch (err) {
-    counters.linesFailed = commitLines.length - counters.linesImported;
+    counters.linesFailed = commitLines_.length - counters.linesImported;
     console.error('[ReceivingCommit] Transaction failed — rolled back:', err);
     throw new Error(`Receiving commit failed and was rolled back. Database is unchanged.\n\nReason: ${err.message}`);
   }
 
   // ---- Stage 4B: CommercialProfile — post-transaction (non-fatal) ----
   // Runs outside the Dexie transaction so CommercialPriceHistory can be written.
-  // A failure here does NOT roll back inventory — the session is already Completed.
-  // Each product gets a Verified ReplacementCostSnapshot from this delivery.
-  for (const line of commitLines) {
+  for (const line of commitLines_) {
     if (line.unitCost != null) {
       await updateReplacementCostFromReceiving(line.productId, {
-        amount:       line.unitCost,
-        supplierId:   line.supplierId || session.supplierId || null,
-        supplierName: null, // enriched at read time by CommercialProfileService
+        amount:      line.unitCost,
+        supplierId:  line.supplierId || session.supplierId || null,
+        supplierName: null,
       }, startTime).catch((err) =>
         console.warn('[ReceivingCommit] Stage 4B snapshot failed (non-fatal):', line.productId, err.message)
       );
@@ -231,6 +224,11 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
     }
   }
 
+  // ---- Stage 8: Soft-archive ReceivingLines (RPA-001) ----
+  await commitLines(sessionId).catch((err) =>
+    console.warn('[ReceivingCommit] Stage 8 line archival failed (non-fatal):', err.message)
+  );
+
   return {
     sessionId,
     duration:      Date.now() - startTime,
@@ -240,16 +238,10 @@ export async function commitReceivingSession(sessionId, lines, operator = 'syste
 }
 
 // ================================================================
-// WEIGHTED AVERAGE COST + STOCK UPDATE
+// INTERNAL HELPERS
 // ================================================================
 
-/**
- * Recompute WAC and update currentStock/lastCost/lastReceivedDate on the Product.
- * WAC = Σ(qty × cost) / Σ(qty) across all active lots with a cost.
- * Must be called inside an existing Dexie transaction.
- */
 async function _updateProductInventoryFields(productId, newLots, timestamp) {
-  // Fetch all active lots for this product (existing + new just added above)
   const allLots = await db.InventoryLots
     .where('productId').equals(productId)
     .and((l) => l.status !== 'Expired' && l.quantityAvailable > 0)
@@ -265,13 +257,11 @@ async function _updateProductInventoryFields(productId, newLots, timestamp) {
     if (lot.unitCost != null) {
       totalCost += lot.quantityAvailable * lot.unitCost;
       hasCost    = true;
-      lastCost   = lot.unitCost; // last lot (ordered by creation) wins
+      lastCost   = lot.unitCost;
     }
   }
 
   const wac = hasCost && totalQty > 0 ? totalCost / totalQty : null;
-
-  // Use the most recently created lot's cost as lastCost
   const mostRecent = newLots[newLots.length - 1];
   if (mostRecent?.cost != null) lastCost = mostRecent.cost;
 
@@ -283,10 +273,6 @@ async function _updateProductInventoryFields(productId, newLots, timestamp) {
     updatedAt:          timestamp,
   });
 }
-
-// ================================================================
-// HELPERS
-// ================================================================
 
 function _computeLotStatus(expiryEpoch) {
   if (expiryEpoch == null) return 'Review';

@@ -1,7 +1,7 @@
 {
   "name": "Dglopa Platform",
   "short_name": "Dglopa",
-  "description": "Pharmacy operations platform — offline-first",
+  "description": "Pharmacy operations platform \u2014 offline-first",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -9,7 +9,10 @@
   "theme_color": "#0A0C10",
   "background_color": "#0A0C10",
   "lang": "en-NG",
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "assets/icons/icon-192.png",
@@ -23,5 +26,6 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "version": "1.2.0"
 }
